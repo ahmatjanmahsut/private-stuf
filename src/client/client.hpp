@@ -4,6 +4,7 @@
 #include "tun/itun.hpp"
 #include <asio.hpp>
 #include <atomic>
+#include <cstddef>
 #include <memory>
 #include <thread>
 
@@ -16,6 +17,8 @@ public:
 
     void run();
     void stop();
+    size_t session_count() const;
+
 
 private:
     const Config&               cfg_;

@@ -9,13 +9,13 @@ namespace vpn {
 class Logger {
 public:
     static void init(const std::string& name = "vpntunnel", int level = 1);
+    static void set_level(int level);
     static std::shared_ptr<spdlog::logger> get();
 
 private:
     static std::shared_ptr<spdlog::logger> instance_;
 };
 
-// Convenience macros
 #define VPN_TRACE(...)  vpn::Logger::get()->trace(__VA_ARGS__)
 #define VPN_INFO(...)   vpn::Logger::get()->info(__VA_ARGS__)
 #define VPN_WARN(...)   vpn::Logger::get()->warn(__VA_ARGS__)

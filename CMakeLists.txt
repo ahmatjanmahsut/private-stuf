@@ -65,6 +65,7 @@ set(COMMON_SOURCES
     src/obfuscate/padding_obfuscator.cpp
     src/tunnel/session.cpp
     src/tunnel/tunnel_manager.cpp
+    src/web/web_ui.cpp
 )
 
 # Linux/macOS 加 linux_tun.cpp，Windows 加 windows_tun.cpp

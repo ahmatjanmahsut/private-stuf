@@ -23,6 +23,12 @@ tun:
   netmask: "255.255.255.0"
   mtu: 1420
 
+web_ui:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8080
+  auto_start_tunnel: true
+
 # Log level: 0=trace 1=info 2=warn 3=error
 log_level: 1
 

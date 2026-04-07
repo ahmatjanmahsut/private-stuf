@@ -22,7 +22,12 @@ tun:
   netmask: "255.255.255.0"
   mtu: 1420
 
-log_level: 1
+web_ui:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8081
+  auto_start_tunnel: true
 
+log_level: 1
 handshake_timeout: 5
 keepalive_interval: 25

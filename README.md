@@ -18,6 +18,7 @@
 - [编译构建](#编译构建)
   - [Linux（服务端 + 客户端）](#linux服务端--客户端)
   - [Windows（仅客户端）](#windows仅客户端)
+- [Web UI 控制台](#web-ui-控制台)
 - [部署教程](#部署教程)
   - [第一步：服务端部署（Linux）](#第一步服务端部署linux)
   - [第二步：客户端部署（Linux）](#第二步客户端部署linux)
@@ -53,6 +54,7 @@
 | **TUN 虚拟网卡** | 服务端 `/dev/net/tun`；Windows 客户端 WinTun |
 | **跨平台** | 服务端：Linux；客户端：Linux / Windows |
 | **多客户端** | 服务端支持同时接入多个客户端会话 |
+| **Web UI 控制台** | 浏览器内完成启动/停止、配置保存、重载、重启与全部核心参数调整 |
 | **异步 I/O** | 基于 Asio standalone 实现非阻塞网络通信 |
 
 ---
@@ -123,15 +125,19 @@ vpntunnel/
 │   │   ├── itun.hpp            # TUN 设备接口
 │   │   ├── linux_tun.hpp       # Linux /dev/net/tun
 │   │   └── windows_tun.hpp     # Windows WinTun 动态加载
-│   └── tunnel/
-│       ├── session.hpp         # 会话（防重放、混淆链）
-│       └── tunnel_manager.hpp  # 会话管理器
+│   ├── tunnel/
+│   │   ├── session.hpp         # 会话（防重放、混淆链）
+│   │   └── tunnel_manager.hpp  # 会话管理器
+│   └── web/
+│       └── web_ui.hpp          # 内置 Web UI 控制台
 └── src/                        # 源文件实现（对应 include/ 结构）
     ├── common/
     ├── crypto/
     ├── obfuscate/
     ├── tun/
     ├── tunnel/
+    ├── web/
+    │   └── web_ui.cpp          # Web UI 控制台实现
     ├── server/
     │   ├── server.hpp          # Server 类（仅 Linux）
     │   ├── server.cpp
@@ -152,7 +158,7 @@ vpntunnel/
 |------|---------|------|
 | CMake | ≥ 3.16 | 构建系统 |
 | C++ 编译器 | C++17 | GCC ≥ 9 / Clang ≥ 10 / MSVC 2019+ |
-| OpenSSL | ≥ 1.1.1 | 提供加密原语（X25519、HKDF、ChaCha20、AES-GCM） |
+| OpenSSL | ≥ 3.0 | 提供加密原语（X25519、HKDF、ChaCha20、AES-GCM） |
 | Git | 任意版本 | FetchContent 自动拉取第三方库 |
 
 > CMake FetchContent 会自动下载以下库，**无需手动安装**：
@@ -263,7 +269,61 @@ build_windows\Release\
 
 ---
 
+## Web UI 控制台
+
+项目现已内置 `Web UI`。`vpn_server` 与 `vpn_client` 都支持在浏览器中完成以下操作：
+
+- 启动隧道 / 停止隧道 / 重启隧道
+- 从磁盘重新加载配置
+- 保存全部配置到 YAML 文件
+- 修改加密算法、`PSK`、混淆链顺序
+- 修改 `TUN` 地址、掩码、`MTU`
+- 修改日志级别、握手超时、`Keepalive`
+- 修改 `Web UI` 自身的启用状态、监听地址、端口与自动启动开关
+
+### 默认行为
+
+示例 `config/server.yaml` 与 `config/client.yaml` 已默认开启 `Web UI`，并设置：
+
+- 服务端 Web UI：`http://127.0.0.1:8080`
+- 客户端 Web UI：`http://127.0.0.1:8081`
+- `auto_start_tunnel: true`，因此进程启动后会自动拉起隧道
+
+如果你希望恢复传统命令行直启模式，可在配置中将 `web_ui.enabled` 设为 `false`，或在启动时传入 `--no-web-ui`。
+
+### 启动方式
+
+```bash
+# 服务端：按配置启动 Web UI（若 auto_start_tunnel=true，会自动拉起隧道）
+./vpn_server config/server.yaml
+
+# 服务端：强制开启 Web UI，并改监听地址/端口
+./vpn_server --config config/server.yaml --web-ui --web-ui-host 0.0.0.0 --web-ui-port 8088
+
+# 客户端：按配置启动 Web UI
+./vpn_client config/client.yaml
+
+# 客户端：仅命令行运行，不启动 Web UI
+./vpn_client --config config/client.yaml --no-web-ui
+```
+
+Windows 客户端同理：
+
+```bat
+vpn_client.exe config\client.yaml
+vpn_client.exe --config config\client.yaml --web-ui --web-ui-port 8089
+```
+
+### 安全建议
+
+- 默认将 Web UI 绑定到 `127.0.0.1`，避免直接暴露到公网。
+- 若需远程访问，建议通过 SSH 隧道、反向代理 Basic Auth、Nginx 访问控制或防火墙白名单保护。
+- 修改 `web_ui.host` / `web_ui.port` 后，需要重启进程，新的绑定地址才会生效。
+
+---
+
 ## 部署教程
+
 
 ### 第一步：服务端部署（Linux）
 
@@ -307,6 +367,12 @@ tun:
   address: "10.0.0.1"   # 服务端 TUN IP
   netmask: "255.255.255.0"
   mtu: 1420
+
+web_ui:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8080
+  auto_start_tunnel: true
 ```
 
 #### 1.3 开放防火墙端口

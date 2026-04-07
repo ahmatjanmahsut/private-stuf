@@ -3,6 +3,8 @@
 #include "tunnel/tunnel_manager.hpp"
 #include "tun/itun.hpp"
 #include <asio.hpp>
+#include <atomic>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -18,15 +20,18 @@ public:
 
     void run();
     void stop();
+    size_t session_count() const;
 
 private:
+
     const Config&               cfg_;
     asio::io_context            io_ctx_;
     asio::ip::tcp::acceptor     acceptor_;
     TunnelManager               tunnel_mgr_;
     std::unique_ptr<ITunDevice> tun_;
     std::vector<std::thread>    workers_;
-    bool                        running_ = false;
+    std::atomic<bool>           running_{false};
+
 
     // session_id -> TCP socket（用于 TUN→隧道 方向路由）
     std::mutex sessions_sock_mutex_;

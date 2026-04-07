@@ -53,9 +53,28 @@ void Server::run() {
 
 void Server::stop() {
     running_ = false;
+
+    asio::error_code ec;
+    acceptor_.close(ec);
+
+    std::vector<std::shared_ptr<asio::ip::tcp::socket>> sockets;
+    {
+        std::lock_guard<std::mutex> lk(sessions_sock_mutex_);
+        for (auto& kv : session_socks_)
+            sockets.push_back(kv.second);
+        session_socks_.clear();
+    }
+
+    for (auto& sock : sockets) {
+        if (!sock) continue;
+        sock->shutdown(asio::ip::tcp::socket::shutdown_both, ec);
+        sock->close(ec);
+    }
+
     io_ctx_.stop();
     if (tun_) tun_->close();
 }
+
 
 // ── Accept 循环 ───────────────────────────────────────────────────────────
 void Server::start_accept() {
@@ -238,10 +257,15 @@ void Server::unregister_session_sock(uint32_t sid) {
 }
 
 // ── Crypto 工厂 ───────────────────────────────────────────────────────────
+size_t Server::session_count() const {
+    return tunnel_mgr_.session_count();
+}
+
 std::unique_ptr<ICrypto> Server::make_crypto() const {
     if (cfg_.cipher == CipherType::AES_256_GCM)
         return std::make_unique<AesGcmCrypto>();
     return std::make_unique<ChaCha20Crypto>();
 }
+
 
 } // namespace vpn

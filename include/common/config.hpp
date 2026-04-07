@@ -24,6 +24,13 @@ struct TunConfig {
     int         mtu     = 1420;
 };
 
+struct WebUiConfig {
+    bool        enabled           = false;
+    std::string host              = "127.0.0.1";
+    uint16_t    port              = 8080;
+    bool        auto_start_tunnel = false;
+};
+
 struct Config {
     // role
     bool is_server = false;
@@ -36,7 +43,6 @@ struct Config {
 
     // crypto
     CipherType cipher = CipherType::CHACHA20_POLY1305;
-    // pre-shared key (hex string, 32 bytes)
     std::string psk;
 
     // obfuscation chain (applied in order on send, reversed on recv)
@@ -45,14 +51,24 @@ struct Config {
     // TUN
     TunConfig tun;
 
+    // Web UI
+    WebUiConfig web_ui;
+
     // misc
-    int  log_level         = 1;   // 0=trace,1=info,2=warn,3=error
-    int  handshake_timeout = 5;   // seconds
-    int  keepalive_interval= 25;  // seconds
+    int log_level          = 1;
+    int handshake_timeout  = 5;
+    int keepalive_interval = 25;
 
     static Config load_from_file(const std::string& path);
+    static Config load_from_yaml_string(const std::string& yaml_text);
     static Config load_server_defaults();
     static Config load_client_defaults();
+
+    void        save_to_file(const std::string& path) const;
+    std::string to_yaml_string() const;
 };
+
+std::string to_string(CipherType cipher);
+std::string to_string(ObfuscateMode mode);
 
 } // namespace vpn

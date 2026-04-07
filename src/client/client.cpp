@@ -36,9 +36,17 @@ Client::~Client() { stop(); }
 
 void Client::stop() {
     running_ = false;
+
+    asio::error_code ec;
+    if (sock_) {
+        sock_->shutdown(asio::ip::tcp::socket::shutdown_both, ec);
+        sock_->close(ec);
+    }
+
     io_ctx_.stop();
     if (tun_) tun_->close();
 }
+
 
 // ── 运行 ──────────────────────────────────────────────────────────────────
 void Client::run() {
@@ -186,7 +194,9 @@ void Client::recv_loop() {
     }
     VPN_INFO("Client recv_loop ended");
     running_ = false;
+    if (tun_) tun_->close();
 }
+
 
 // ── TUN 读取循环（client → server）───────────────────────────────────────
 void Client::tun_read_loop() {
@@ -218,10 +228,15 @@ void Client::tun_read_loop() {
     VPN_INFO("Client tun_read_loop ended");
 }
 
+size_t Client::session_count() const {
+    return tunnel_mgr_.session_count();
+}
+
 std::unique_ptr<ICrypto> Client::make_crypto() const {
     if (cfg_.cipher == CipherType::AES_256_GCM)
         return std::make_unique<AesGcmCrypto>();
     return std::make_unique<ChaCha20Crypto>();
 }
+
 
 } // namespace vpn
