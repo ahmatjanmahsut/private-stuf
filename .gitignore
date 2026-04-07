@@ -1,0 +1,13 @@
+build_linux/
+build_windows/
+cmake-build-*/
+out/
+.vs/
+.idea/
+*.user
+*.suo
+*.obj
+*.pdb
+*.ilk
+*.dll
+*.exe

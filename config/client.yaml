@@ -1,0 +1,28 @@
+# VPN Tunnel - Client Configuration
+role: client
+
+peer:
+  host: "YOUR_SERVER_IP"
+  port: 51820
+
+# Must match server cipher
+cipher: chacha20-poly1305
+
+# Must match server psk
+psk: "change-this-to-a-strong-secret-key"
+
+# Must match server obfuscate_chain
+obfuscate_chain:
+  - padding
+  - websocket
+
+tun:
+  name: "tun0"
+  address: "10.0.0.2"
+  netmask: "255.255.255.0"
+  mtu: 1420
+
+log_level: 1
+
+handshake_timeout: 5
+keepalive_interval: 25

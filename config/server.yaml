@@ -1,0 +1,30 @@
+# VPN Tunnel - Server Configuration
+role: server
+
+listen:
+  host: "0.0.0.0"
+  port: 51820
+
+# Cipher: chacha20-poly1305 | aes-256-gcm
+cipher: chacha20-poly1305
+
+# Pre-shared key (for HMAC authentication, ASCII string)
+psk: "change-this-to-a-strong-secret-key"
+
+# Obfuscation chain (applied in order: padding -> websocket -> http)
+# Each layer wraps the previous output
+obfuscate_chain:
+  - padding
+  - websocket
+
+tun:
+  name: "tun0"
+  address: "10.0.0.1"
+  netmask: "255.255.255.0"
+  mtu: 1420
+
+# Log level: 0=trace 1=info 2=warn 3=error
+log_level: 1
+
+handshake_timeout: 5
+keepalive_interval: 25
