@@ -1,4 +1,4 @@
-#include "client/client.hpp"
+#include "client.hpp"
 #include "common/logger.hpp"
 #include "common/packet.hpp"
 #include "crypto/chacha20_crypto.hpp"
@@ -11,6 +11,7 @@
 #include <openssl/rand.h>
 #include <openssl/hmac.h>
 #include <cstring>
+#include <stdexcept>
 #include <thread>
 #include <chrono>
 
@@ -43,7 +44,6 @@ void Client::stop() {
 void Client::run() {
     running_ = true;
 
-    // 连接+握手，失败时重试
     int retries = 0;
     while (running_) {
         if (connect_and_handshake()) break;
@@ -56,16 +56,14 @@ void Client::run() {
         }
     }
 
-    // 启动接收线程
     std::thread recv_thread([this]{ recv_loop(); });
-    // TUN 读取线程（本地 → 加密 → 发送）
     std::thread tun_thread([this]{ tun_read_loop(); });
 
     recv_thread.join();
     tun_thread.join();
 }
 
-// ── 连接 + 握手 ───────────────────────────────────────────────────────────
+// ── 连接 + 握手（两步 ECDH：先取公钥发出，再用对端公钥做 ECDH）──────────
 bool Client::connect_and_handshake() {
     sock_ = std::make_shared<asio::ip::tcp::socket>(io_ctx_);
 
@@ -80,21 +78,25 @@ bool Client::connect_and_handshake() {
     }
     VPN_INFO("Connected to {}:{}", cfg_.peer_host, cfg_.peer_port);
 
-    // 构造 HandshakeInit
+    // 创建 crypto，生成密钥对
     auto crypto = make_crypto();
     uint8_t nonce[12];
     RAND_bytes(nonce, 12);
 
     // 步骤1：仅取本端公钥，不做 ECDH
     std::vector<uint8_t> my_pubkey;
-    if (!crypto->get_public_key(my_pubkey)) return false;
+    if (!crypto->get_public_key(my_pubkey)) {
+        VPN_ERROR("get_public_key failed");
+        return false;
+    }
 
+    // 构造 HandshakeInit
     HandshakeInit init{};
     init.header.type = MsgType::HANDSHAKE_INIT;
     std::memcpy(init.sender_pubkey, my_pubkey.data(), 32);
     std::memcpy(init.nonce, nonce, 12);
 
-    // HMAC
+    // HMAC-SHA256(pubkey || nonce) with PSK
     if (!cfg_.psk.empty()) {
         std::vector<uint8_t> payload(my_pubkey.begin(), my_pubkey.end());
         payload.insert(payload.end(), nonce, nonce + 12);
@@ -121,14 +123,14 @@ bool Client::connect_and_handshake() {
         return false;
     }
 
-    // 验证 HMAC
+    // 验证服务端 HMAC
     if (!cfg_.psk.empty()) {
         uint8_t expected[32];
         unsigned int hlen = 32;
         std::vector<uint8_t> payload(4 + 32 + 12);
-        std::memcpy(payload.data(), &resp.session_id, 4);
-        std::memcpy(payload.data() + 4, resp.sender_pubkey, 32);
-        std::memcpy(payload.data() + 36, resp.nonce, 12);
+        std::memcpy(payload.data(),      &resp.session_id,   4);
+        std::memcpy(payload.data() + 4,   resp.sender_pubkey, 32);
+        std::memcpy(payload.data() + 36,  resp.nonce,         12);
         HMAC(EVP_sha256(),
              cfg_.psk.data(), static_cast<int>(cfg_.psk.size()),
              payload.data(), payload.size(),
@@ -139,7 +141,7 @@ bool Client::connect_and_handshake() {
         }
     }
 
-    // 步骤2：用真实服务端公钥做 ECDH，推导会话密钥
+    // 步骤2：用服务端真实公钥完成 ECDH + HKDF 推导会话密钥
     if (!crypto->do_ecdh(resp.sender_pubkey, 32, nonce, 12)) {
         VPN_ERROR("ECDH with server pubkey failed");
         return false;
@@ -149,7 +151,7 @@ bool Client::connect_and_handshake() {
     auto obfuscators = TunnelManager::build_obfuscators(cfg_.obfuscate_chain);
     session_id_ = tunnel_mgr_.create_session(std::move(crypto), std::move(obfuscators));
     Session* sess = tunnel_mgr_.get_session(session_id_);
-    sess->session_id  = resp.session_id; // 使用服务端分配的 ID
+    sess->session_id  = resp.session_id;  // 使用服务端分配的 ID
     sess->established = true;
 
     VPN_INFO("Handshake complete, session_id={}", resp.session_id);
@@ -165,8 +167,8 @@ void Client::recv_loop() {
         if (ec) { VPN_WARN("recv_loop: {}", ec.message()); break; }
 
         uint32_t pkt_len =
-            static_cast<uint32_t>(len_buf[0]) |
-            (static_cast<uint32_t>(len_buf[1]) << 8) |
+            static_cast<uint32_t>(len_buf[0])        |
+            (static_cast<uint32_t>(len_buf[1]) << 8)  |
             (static_cast<uint32_t>(len_buf[2]) << 16) |
             (static_cast<uint32_t>(len_buf[3]) << 24);
         if (pkt_len == 0 || pkt_len > 65536) break;
@@ -199,17 +201,16 @@ void Client::tun_read_loop() {
         auto encrypted = sess->encrypt_and_pack(buf.data(), static_cast<size_t>(n));
         if (encrypted.empty()) continue;
 
-        // 发送：4字节长度 + 数据
         uint32_t len = static_cast<uint32_t>(encrypted.size());
-        uint8_t len_buf[4] = {
-            static_cast<uint8_t>(len & 0xff),
-            static_cast<uint8_t>((len >> 8) & 0xff),
+        uint8_t len_hdr[4] = {
+            static_cast<uint8_t>(len        & 0xff),
+            static_cast<uint8_t>((len >>  8) & 0xff),
             static_cast<uint8_t>((len >> 16) & 0xff),
             static_cast<uint8_t>((len >> 24) & 0xff)
         };
 
         asio::error_code ec;
-        asio::write(*sock_, asio::buffer(len_buf, 4), ec);
+        asio::write(*sock_, asio::buffer(len_hdr, 4), ec);
         if (ec) { running_ = false; break; }
         asio::write(*sock_, asio::buffer(encrypted), ec);
         if (ec) { running_ = false; break; }

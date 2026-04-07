@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "master", "develop" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build-linux:
+    name: Build Linux (GCC, OpenSSL 3)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            libssl-dev \
+            git
+
+      - name: Verify OpenSSL version
+        run: openssl version
+
+      - name: Configure CMake
+        run: |
+          cmake -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_STANDARD=17
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+
+      - name: List build artifacts
+        run: |
+          echo "=== Build outputs ==="
+          ls -lh build/vpn_server build/vpn_client 2>/dev/null || ls -lh build/
+
+      - name: Upload build artifacts (for inspection)
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpntunnel-linux-debug
+          path: |
+            build/vpn_server
+            build/vpn_client
+          if-no-files-found: warn
+          retention-days: 7

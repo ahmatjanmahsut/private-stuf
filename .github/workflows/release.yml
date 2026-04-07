@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build Linux Release Binaries
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            libssl-dev \
+            git
+
+      - name: Get tag version
+        id: tag
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure CMake (Release)
+        run: |
+          cmake -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_STANDARD=17 \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Strip binaries
+        run: |
+          strip build/vpn_server || true
+          strip build/vpn_client || true
+
+      - name: Package release artifacts
+        run: |
+          VERSION=${{ steps.tag.outputs.version }}
+          DIST="vpntunnel-${VERSION}-linux-x86_64"
+          mkdir -p "$DIST"
+
+          # Copy binaries
+          cp build/vpn_server "$DIST/" 2>/dev/null || true
+          cp build/vpn_client "$DIST/" 2>/dev/null || true
+
+          # Copy config samples
+          cp -r config "$DIST/"
+
+          # Copy scripts
+          cp build_linux.sh "$DIST/" 2>/dev/null || true
+
+          # Copy README
+          cp README.md "$DIST/" 2>/dev/null || true
+
+          # Create tarball
+          tar -czf "${DIST}.tar.gz" "$DIST"
+          sha256sum "${DIST}.tar.gz" > "${DIST}.tar.gz.sha256"
+
+          echo "DIST_FILE=${DIST}.tar.gz" >> "$GITHUB_ENV"
+          echo "DIST_SHA=${DIST}.tar.gz.sha256" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.version }}
+          name: "VPN Tunnel ${{ steps.tag.outputs.version }}"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## VPN Tunnel ${{ steps.tag.outputs.version }}
+
+            ### 下载
+
+            | 平台 | 文件 | 说明 |
+            |------|------|------|
+            | Linux x86_64 | `vpntunnel-${{ steps.tag.outputs.version }}-linux-x86_64.tar.gz` | 含服务端 + 客户端二进制 |
+
+            ### 内容说明
+            - `vpn_server` — 服务端可执行文件（Linux）
+            - `vpn_client` — 客户端可执行文件（Linux）
+            - `config/` — 配置文件模板
+            - `README.md` — 完整文档
+
+            ### 快速开始
+            ```bash
+            # 解压
+            tar -xzf vpntunnel-${{ steps.tag.outputs.version }}-linux-x86_64.tar.gz
+            cd vpntunnel-${{ steps.tag.outputs.version }}-linux-x86_64
+
+            # 服务端启动
+            sudo ./vpn_server --config config/server.yaml
+
+            # 客户端启动
+            sudo ./vpn_client --config config/client.yaml
+            ```
+
+            ### 校验文件完整性
+            ```bash
+            sha256sum -c vpntunnel-${{ steps.tag.outputs.version }}-linux-x86_64.tar.gz.sha256
+            ```
+          files: |
+            ${{ env.DIST_FILE }}
+            ${{ env.DIST_SHA }}

@@ -1,5 +1,10 @@
 # VPN Tunnel
 
+[![CI](https://github.com/ahmatjanmahsut/private-stuf/actions/workflows/ci.yml/badge.svg)](https://github.com/ahmatjanmahsut/private-stuf/actions/workflows/ci.yml)
+[![Release](https://github.com/ahmatjanmahsut/private-stuf/actions/workflows/release.yml/badge.svg)](https://github.com/ahmatjanmahsut/private-stuf/actions/workflows/release.yml)
+[![Latest Release](https://img.shields.io/github/v/release/ahmatjanmahsut/private-stuf?label=latest)](https://github.com/ahmatjanmahsut/private-stuf/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 一个用 C++17 实现的加密隧道软件，功能对标 WireGuard，并集成类 Clash 的多层流量混淆能力。
 
 ---

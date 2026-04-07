@@ -9,15 +9,14 @@
 
 namespace vpn {
 
-// ─── 复用与 chacha20 相同的 X25519/HKDF 工具函数 ─────────────────────────
+// ── X25519 生成密钥对 ─────────────────────────────────────────────────────
 static bool x25519_keygen_aes(uint8_t priv[32], uint8_t pub[32]) {
     EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, nullptr);
     if (!ctx) return false;
-    EVP_PKEY_keygen_init(ctx);
+    if (EVP_PKEY_keygen_init(ctx) <= 0) { EVP_PKEY_CTX_free(ctx); return false; }
     EVP_PKEY* pkey = nullptr;
-    EVP_PKEY_keygen(ctx, &pkey);
+    if (EVP_PKEY_keygen(ctx, &pkey) <= 0) { EVP_PKEY_CTX_free(ctx); return false; }
     EVP_PKEY_CTX_free(ctx);
-    if (!pkey) return false;
     size_t len = 32;
     EVP_PKEY_get_raw_private_key(pkey, priv, &len);
     len = 32;
@@ -26,20 +25,25 @@ static bool x25519_keygen_aes(uint8_t priv[32], uint8_t pub[32]) {
     return true;
 }
 
+// ── X25519 ECDH ───────────────────────────────────────────────────────────
 static bool x25519_ecdh_aes(const uint8_t priv[32], const uint8_t peer_pub[32],
                               uint8_t shared[32]) {
     EVP_PKEY* pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr, priv, 32);
     EVP_PKEY* ppub = EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, nullptr, peer_pub, 32);
     if (!pkey || !ppub) { EVP_PKEY_free(pkey); EVP_PKEY_free(ppub); return false; }
     EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(pkey, nullptr);
+    if (!ctx) { EVP_PKEY_free(pkey); EVP_PKEY_free(ppub); return false; }
     size_t len = 32;
     bool ok = (EVP_PKEY_derive_init(ctx) > 0 &&
                EVP_PKEY_derive_set_peer(ctx, ppub) > 0 &&
                EVP_PKEY_derive(ctx, shared, &len) > 0);
-    EVP_PKEY_CTX_free(ctx); EVP_PKEY_free(pkey); EVP_PKEY_free(ppub);
+    EVP_PKEY_CTX_free(ctx);
+    EVP_PKEY_free(pkey);
+    EVP_PKEY_free(ppub);
     return ok;
 }
 
+// ── HKDF-SHA256 ──────────────────────────────────────────────────────────
 static bool hkdf_sha256_aes(const uint8_t* ikm, size_t ikm_len,
                               const uint8_t* salt, size_t salt_len,
                               const char* info,
@@ -50,23 +54,23 @@ static bool hkdf_sha256_aes(const uint8_t* ikm, size_t ikm_len,
     EVP_KDF_free(kdf);
     OSSL_PARAM params[5];
     int idx = 0;
-    params[idx++] = OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST,
-                        const_cast<char*>("SHA256"), 0);
-    params[idx++] = OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_KEY,
-                        const_cast<uint8_t*>(ikm), ikm_len);
+    params[idx++] = OSSL_PARAM_construct_utf8_string(
+        OSSL_KDF_PARAM_DIGEST, const_cast<char*>("SHA256"), 0);
+    params[idx++] = OSSL_PARAM_construct_octet_string(
+        OSSL_KDF_PARAM_KEY, const_cast<uint8_t*>(ikm), ikm_len);
     if (salt && salt_len)
-        params[idx++] = OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT,
-                            const_cast<uint8_t*>(salt), salt_len);
+        params[idx++] = OSSL_PARAM_construct_octet_string(
+            OSSL_KDF_PARAM_SALT, const_cast<uint8_t*>(salt), salt_len);
     if (info)
-        params[idx++] = OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_INFO,
-                            const_cast<char*>(info), strlen(info));
+        params[idx++] = OSSL_PARAM_construct_octet_string(
+            OSSL_KDF_PARAM_INFO, const_cast<char*>(info), strlen(info));
     params[idx] = OSSL_PARAM_construct_end();
     bool ok = (EVP_KDF_derive(kctx, out, out_len, params) > 0);
     EVP_KDF_CTX_free(kctx);
     return ok;
 }
 
-// ─── AesGcmCrypto ──────────────────────────────────────────────────────
+// ── AesGcmCrypto ──────────────────────────────────────────────────────────
 AesGcmCrypto::AesGcmCrypto() {
     uint8_t pub[32];
     if (!x25519_keygen_aes(private_key_.data(), pub))
@@ -78,10 +82,11 @@ AesGcmCrypto::~AesGcmCrypto() {
     OPENSSL_cleanse(session_key_.data(), 32);
 }
 
+// 步骤1：仅返回本端公钥
 bool AesGcmCrypto::get_public_key(std::vector<uint8_t>& out_pubkey) {
     uint8_t pub[32];
-    EVP_PKEY* pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
-                                                   private_key_.data(), 32);
+    EVP_PKEY* pkey = EVP_PKEY_new_raw_private_key(
+        EVP_PKEY_X25519, nullptr, private_key_.data(), 32);
     if (!pkey) return false;
     size_t len = 32;
     bool ok = EVP_PKEY_get_raw_public_key(pkey, pub, &len) > 0;
@@ -90,7 +95,9 @@ bool AesGcmCrypto::get_public_key(std::vector<uint8_t>& out_pubkey) {
     return ok;
 }
 
-bool AesGcmCrypto::do_ecdh(const uint8_t* peer_pubkey, size_t /*peer_pubkey_len*/,
+// 步骤2：ECDH + HKDF
+bool AesGcmCrypto::do_ecdh(const uint8_t* peer_pubkey,
+                             size_t /*peer_pubkey_len*/,
                              const uint8_t* salt, size_t salt_len) {
     uint8_t shared[32];
     if (!x25519_ecdh_aes(private_key_.data(), peer_pubkey, shared)) return false;
@@ -101,15 +108,20 @@ bool AesGcmCrypto::do_ecdh(const uint8_t* peer_pubkey, size_t /*peer_pubkey_len*
     return true;
 }
 
-bool AesGcmCrypto::handshake(const uint8_t* peer_pubkey, size_t peer_pubkey_len,
+// 兼容接口
+bool AesGcmCrypto::handshake(const uint8_t* peer_pubkey,
+                               size_t peer_pubkey_len,
                                const uint8_t* salt, size_t salt_len,
                                std::vector<uint8_t>& out_pubkey) {
     if (!get_public_key(out_pubkey)) return false;
     return do_ecdh(peer_pubkey, peer_pubkey_len, salt, salt_len);
 }
 
-bool AesGcmCrypto::derive_session_key(const uint8_t* shared, const uint8_t* salt, size_t salt_len) {
-    return hkdf_sha256_aes(shared, 32, salt, salt_len, "vpntunnel-aesgcm",
+bool AesGcmCrypto::derive_session_key(const uint8_t* shared,
+                                       const uint8_t* salt,
+                                       size_t salt_len) {
+    return hkdf_sha256_aes(shared, 32, salt, salt_len,
+                            "vpntunnel-aesgcm",
                             session_key_.data(), 32);
 }
 
@@ -142,8 +154,7 @@ bool AesGcmCrypto::encrypt(const uint8_t* plain, size_t plain_len,
     if (ok) {
         uint8_t tag[16];
         ok = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) > 0;
-        if (ok)
-            std::memcpy(ciphertext.data() + outl + finl, tag, 16);
+        if (ok) std::memcpy(ciphertext.data() + outl + finl, tag, 16);
     }
 
     EVP_CIPHER_CTX_free(ctx);

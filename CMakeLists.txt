@@ -49,7 +49,7 @@ set(YAML_CPP_BUILD_CONTRIB OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(yaml-cpp)
 
 # ── OpenSSL ─────────────────────────────────────────────────────────────────
-find_package(OpenSSL REQUIRED)
+find_package(OpenSSL 3.0 REQUIRED)
 
 # ── 公共 include 目录 ────────────────────────────────────────────────────────
 set(COMMON_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
@@ -93,7 +93,9 @@ if(UNIX AND NOT APPLE)
         src/server/server.cpp
         src/server/main_server.cpp
     )
-    target_include_directories(vpn_server PRIVATE ${COMMON_INCLUDE_DIR})
+    target_include_directories(vpn_server PRIVATE
+        ${COMMON_INCLUDE_DIR}
+        ${CMAKE_SOURCE_DIR}/src/server)
     target_link_libraries(vpn_server PRIVATE ${COMMON_LIBS})
     target_compile_definitions(vpn_server PRIVATE VPN_SERVER_BUILD)
     install(TARGETS vpn_server RUNTIME DESTINATION bin)
@@ -105,7 +107,9 @@ add_executable(vpn_client
     src/client/client.cpp
     src/client/main_client.cpp
 )
-target_include_directories(vpn_client PRIVATE ${COMMON_INCLUDE_DIR})
+target_include_directories(vpn_client PRIVATE
+    ${COMMON_INCLUDE_DIR}
+    ${CMAKE_SOURCE_DIR}/src/client)
 target_link_libraries(vpn_client PRIVATE ${COMMON_LIBS})
 target_compile_definitions(vpn_client PRIVATE VPN_CLIENT_BUILD)
 if(WIN32)

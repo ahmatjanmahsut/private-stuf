@@ -7,6 +7,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 namespace vpn {
 
@@ -27,7 +28,7 @@ private:
     std::vector<std::thread>    workers_;
     bool                        running_ = false;
 
-    // session_id -> socket（用于 TUN→隧道 方向路由）
+    // session_id -> TCP socket（用于 TUN→隧道 方向路由）
     std::mutex sessions_sock_mutex_;
     std::unordered_map<uint32_t,
         std::shared_ptr<asio::ip::tcp::socket>> session_socks_;
@@ -39,7 +40,8 @@ private:
     void start_accept();
     void handle_client(std::shared_ptr<asio::ip::tcp::socket> sock);
     void handle_handshake(std::shared_ptr<asio::ip::tcp::socket> sock);
-    void run_session(std::shared_ptr<asio::ip::tcp::socket> sock, uint32_t session_id);
+    void run_session(std::shared_ptr<asio::ip::tcp::socket> sock,
+                     uint32_t session_id);
     void tun_read_loop();
 
     std::unique_ptr<ICrypto> make_crypto() const;
