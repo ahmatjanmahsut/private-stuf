@@ -4,7 +4,9 @@
 #include "tun/itun.hpp"
 #include <asio.hpp>
 #include <memory>
+#include <mutex>
 #include <thread>
+#include <unordered_map>
 
 namespace vpn {
 
@@ -24,6 +26,15 @@ private:
     std::unique_ptr<ITunDevice> tun_;
     std::vector<std::thread>    workers_;
     bool                        running_ = false;
+
+    // session_id -> socket（用于 TUN→隧道 方向路由）
+    std::mutex sessions_sock_mutex_;
+    std::unordered_map<uint32_t,
+        std::shared_ptr<asio::ip::tcp::socket>> session_socks_;
+
+    void register_session_sock(uint32_t sid,
+        std::shared_ptr<asio::ip::tcp::socket> sock);
+    void unregister_session_sock(uint32_t sid);
 
     void start_accept();
     void handle_client(std::shared_ptr<asio::ip::tcp::socket> sock);

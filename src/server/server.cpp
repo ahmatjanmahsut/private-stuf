@@ -150,6 +150,7 @@ void Server::handle_handshake(std::shared_ptr<asio::ip::tcp::socket> sock) {
     if (ec) { VPN_ERROR("Handshake resp send failed"); return; }
 
     VPN_INFO("Handshake complete, session_id={}", sid);
+    register_session_sock(sid, sock);
     run_session(sock, sid);
 }
 
@@ -184,21 +185,61 @@ void Server::run_session(std::shared_ptr<asio::ip::tcp::socket> sock, uint32_t s
     }
 
     tunnel_mgr_.remove_session(session_id);
+    unregister_session_sock(session_id);
     VPN_INFO("Session {} ended", session_id);
 }
 
-// ── TUN 读取循环（发送方向）──────────────────────────────────────────────
+// ── TUN 读取循环（发送方向：TUN → 加密 → 所有客户端）──────────────────────
 void Server::tun_read_loop() {
     std::vector<uint8_t> buf(65536);
     while (running_) {
         ssize_t n = tun_->read(buf.data(), buf.size());
         if (n <= 0) continue;
 
-        // 简单广播给所有 session（生产环境应按 IP 路由）
-        // 这里仅演示：发给第一个已建立的会话
-        // TODO: 实际部署需要路由表
-        (void)n; // suppress unused warning in demo
+        // 收集当前所有 session 的 socket 快照（避免长持锁）
+        std::vector<std::pair<uint32_t,
+            std::shared_ptr<asio::ip::tcp::socket>>> snapshot;
+        {
+            std::lock_guard<std::mutex> lk(sessions_sock_mutex_);
+            for (auto& kv : session_socks_)
+                snapshot.emplace_back(kv.first, kv.second);
+        }
+
+        for (auto& [sid, sock] : snapshot) {
+            Session* sess = tunnel_mgr_.get_session(sid);
+            if (!sess || !sess->established) continue;
+
+            auto encrypted = sess->encrypt_and_pack(buf.data(),
+                                                     static_cast<size_t>(n));
+            if (encrypted.empty()) continue;
+
+            uint32_t len = static_cast<uint32_t>(encrypted.size());
+            uint8_t len_buf[4] = {
+                static_cast<uint8_t>(len & 0xff),
+                static_cast<uint8_t>((len >> 8)  & 0xff),
+                static_cast<uint8_t>((len >> 16) & 0xff),
+                static_cast<uint8_t>((len >> 24) & 0xff)
+            };
+            asio::error_code ec;
+            asio::write(*sock, asio::buffer(len_buf, 4), ec);
+            if (!ec)
+                asio::write(*sock, asio::buffer(encrypted), ec);
+            if (ec)
+                VPN_WARN("tun_read_loop: send to session {} failed: {}", sid, ec.message());
+        }
     }
+}
+
+// ── 路由表维护 ───────────────────────────────────────────────────────────
+void Server::register_session_sock(uint32_t sid,
+    std::shared_ptr<asio::ip::tcp::socket> sock) {
+    std::lock_guard<std::mutex> lk(sessions_sock_mutex_);
+    session_socks_[sid] = std::move(sock);
+}
+
+void Server::unregister_session_sock(uint32_t sid) {
+    std::lock_guard<std::mutex> lk(sessions_sock_mutex_);
+    session_socks_.erase(sid);
 }
 
 // ── Crypto 工厂 ───────────────────────────────────────────────────────────

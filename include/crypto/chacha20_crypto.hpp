@@ -10,6 +10,12 @@ public:
     ChaCha20Crypto();
     ~ChaCha20Crypto() override;
 
+    bool get_public_key(std::vector<uint8_t>& out_pubkey) override;
+
+    bool do_ecdh(
+        const uint8_t* peer_pubkey, size_t peer_pubkey_len,
+        const uint8_t* salt,        size_t salt_len) override;
+
     bool handshake(
         const uint8_t* peer_pubkey, size_t peer_pubkey_len,
         const uint8_t* salt,        size_t salt_len,

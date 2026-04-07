@@ -1,5 +1,6 @@
 #pragma once
 #include "iobfuscator.hpp"
+#include <array>
 
 namespace vpn {
 

@@ -54,7 +54,7 @@ find_package(OpenSSL REQUIRED)
 # ── 公共 include 目录 ────────────────────────────────────────────────────────
 set(COMMON_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
 
-# ── 共享源文件（common / crypto / obfuscate / tun / tunnel）─────────────────
+# ── 共享源文件（common / crypto / obfuscate / tunnel）──────────────────────
 set(COMMON_SOURCES
     src/common/config.cpp
     src/common/logger.cpp
@@ -63,15 +63,15 @@ set(COMMON_SOURCES
     src/obfuscate/http_obfuscator.cpp
     src/obfuscate/websocket_obfuscator.cpp
     src/obfuscate/padding_obfuscator.cpp
-    src/tun/linux_tun.cpp
     src/tunnel/session.cpp
     src/tunnel/tunnel_manager.cpp
 )
 
-# Windows 客户端额外加 windows_tun.cpp
-set(CLIENT_TUN_SOURCES)
+# Linux/macOS 加 linux_tun.cpp，Windows 加 windows_tun.cpp
 if(WIN32)
-    list(APPEND CLIENT_TUN_SOURCES src/tun/windows_tun.cpp)
+    list(APPEND COMMON_SOURCES src/tun/windows_tun.cpp)
+else()
+    list(APPEND COMMON_SOURCES src/tun/linux_tun.cpp)
 endif()
 
 # ── 公共链接库 ────────────────────────────────────────────────────────────────
@@ -102,7 +102,6 @@ endif()
 # ── client 可执行文件（Linux + Windows）──────────────────────────────────────
 add_executable(vpn_client
     ${COMMON_SOURCES}
-    ${CLIENT_TUN_SOURCES}
     src/client/client.cpp
     src/client/main_client.cpp
 )

@@ -85,22 +85,9 @@ bool Client::connect_and_handshake() {
     uint8_t nonce[12];
     RAND_bytes(nonce, 12);
 
+    // 步骤1：仅取本端公钥，不做 ECDH
     std::vector<uint8_t> my_pubkey;
-    // 先生成本端公钥（peer_pubkey 暂时全0，实际在 handshakeResp 后才 ECDH）
-    // 使用两步握手：先把本端公钥发出去，再读对端公钥做 ECDH
-    // 这里为了简化，先把本端公钥取出
-    uint8_t dummy_peer[32] = {};
-    if (!crypto->handshake(dummy_peer, 32, nonce, 12, my_pubkey)) return false;
-    // 注意：上面 handshake 用了 dummy peer，之后要重做；
-    // 更优做法：把 keygen 与 ECDH 拆开。这里我们重新 new 一个 crypto 做真正握手。
-    // 简化实现：先发送公钥，收到服务端公钥后再做 ECDH
-    // ─── 实际流程：重新创建 crypto，只生成密钥对，不做 ECDH ───
-
-    // 为了正确实现，我们在握手 init 中只携带公钥，
-    // 握手 resp 收到服务端公钥后再调用 crypto->handshake 完成 ECDH。
-    // 这需要 ICrypto 支持"仅取公钥"接口。
-    // 此处使用 ChaCha20Crypto/AesGcmCrypto 的 handshake(dummy) 已生成私钥，
-    // 公钥已经输出到 my_pubkey，之后收到真实 peer 公钥再调 handshake 覆盖。
+    if (!crypto->get_public_key(my_pubkey)) return false;
 
     HandshakeInit init{};
     init.header.type = MsgType::HANDSHAKE_INIT;
@@ -152,9 +139,8 @@ bool Client::connect_and_handshake() {
         }
     }
 
-    // 用真实服务端公钥做 ECDH
-    std::vector<uint8_t> real_pubkey;
-    if (!crypto->handshake(resp.sender_pubkey, 32, nonce, 12, real_pubkey)) {
+    // 步骤2：用真实服务端公钥做 ECDH，推导会话密钥
+    if (!crypto->do_ecdh(resp.sender_pubkey, 32, nonce, 12)) {
         VPN_ERROR("ECDH with server pubkey failed");
         return false;
     }

@@ -78,26 +78,34 @@ AesGcmCrypto::~AesGcmCrypto() {
     OPENSSL_cleanse(session_key_.data(), 32);
 }
 
-bool AesGcmCrypto::handshake(const uint8_t* peer_pubkey, size_t,
-                               const uint8_t* salt, size_t salt_len,
-                               std::vector<uint8_t>& out_pubkey) {
+bool AesGcmCrypto::get_public_key(std::vector<uint8_t>& out_pubkey) {
     uint8_t pub[32];
     EVP_PKEY* pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
                                                    private_key_.data(), 32);
     if (!pkey) return false;
     size_t len = 32;
-    EVP_PKEY_get_raw_public_key(pkey, pub, &len);
+    bool ok = EVP_PKEY_get_raw_public_key(pkey, pub, &len) > 0;
     EVP_PKEY_free(pkey);
-    out_pubkey.assign(pub, pub + 32);
+    if (ok) out_pubkey.assign(pub, pub + 32);
+    return ok;
+}
 
+bool AesGcmCrypto::do_ecdh(const uint8_t* peer_pubkey, size_t /*peer_pubkey_len*/,
+                             const uint8_t* salt, size_t salt_len) {
     uint8_t shared[32];
     if (!x25519_ecdh_aes(private_key_.data(), peer_pubkey, shared)) return false;
     if (!derive_session_key(shared, salt, salt_len)) return false;
     OPENSSL_cleanse(shared, 32);
-
     key_ready_  = true;
     send_nonce_ = 0;
     return true;
+}
+
+bool AesGcmCrypto::handshake(const uint8_t* peer_pubkey, size_t peer_pubkey_len,
+                               const uint8_t* salt, size_t salt_len,
+                               std::vector<uint8_t>& out_pubkey) {
+    if (!get_public_key(out_pubkey)) return false;
+    return do_ecdh(peer_pubkey, peer_pubkey_len, salt, salt_len);
 }
 
 bool AesGcmCrypto::derive_session_key(const uint8_t* shared, const uint8_t* salt, size_t salt_len) {

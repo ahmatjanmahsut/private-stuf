@@ -8,8 +8,17 @@ class ICrypto {
 public:
     virtual ~ICrypto() = default;
 
-    // 生成本端临时密钥对，返回公钥；传入对端公钥，推导会话密钥
+    // ── 两步握手 ─────────────────────────────────────────────────────────────
+    // 步骤1：仅返回本端公钥（构造时已生成密钥对），不做 ECDH
+    virtual bool get_public_key(std::vector<uint8_t>& out_pubkey) = 0;
+
+    // 步骤2：传入对端公钥，完成 ECDH + HKDF 推导会话密钥
     // salt: 握手 nonce，用于 HKDF
+    virtual bool do_ecdh(
+        const uint8_t* peer_pubkey, size_t peer_pubkey_len,
+        const uint8_t* salt,        size_t salt_len) = 0;
+
+    // 兼容旧接口（等价于 get_public_key + do_ecdh 合并）
     virtual bool handshake(
         const uint8_t* peer_pubkey, size_t peer_pubkey_len,
         const uint8_t* salt,        size_t salt_len,

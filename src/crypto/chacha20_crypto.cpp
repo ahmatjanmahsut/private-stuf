@@ -88,32 +88,34 @@ ChaCha20Crypto::~ChaCha20Crypto() {
     OPENSSL_cleanse(session_key_.data(), 32);
 }
 
-bool ChaCha20Crypto::handshake(const uint8_t* peer_pubkey, size_t /*peer_pubkey_len*/,
-                                const uint8_t* salt, size_t salt_len,
-                                std::vector<uint8_t>& out_pubkey) {
-    // 返回本端公钥
+bool ChaCha20Crypto::get_public_key(std::vector<uint8_t>& out_pubkey) {
     uint8_t pub[32];
-    // 重新从私钥获取公钥
     EVP_PKEY* pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
                                                    private_key_.data(), 32);
     if (!pkey) return false;
     size_t len = 32;
-    EVP_PKEY_get_raw_public_key(pkey, pub, &len);
+    bool ok = EVP_PKEY_get_raw_public_key(pkey, pub, &len) > 0;
     EVP_PKEY_free(pkey);
+    if (ok) out_pubkey.assign(pub, pub + 32);
+    return ok;
+}
 
-    out_pubkey.assign(pub, pub + 32);
-
-    // ECDH
+bool ChaCha20Crypto::do_ecdh(const uint8_t* peer_pubkey, size_t /*peer_pubkey_len*/,
+                               const uint8_t* salt, size_t salt_len) {
     uint8_t shared[32];
     if (!x25519_ecdh(private_key_.data(), peer_pubkey, shared)) return false;
-
-    // HKDF 推导会话密钥
     if (!derive_session_key(shared, salt, salt_len)) return false;
     OPENSSL_cleanse(shared, 32);
-
-    key_ready_   = true;
-    send_nonce_  = 0;
+    key_ready_  = true;
+    send_nonce_ = 0;
     return true;
+}
+
+bool ChaCha20Crypto::handshake(const uint8_t* peer_pubkey, size_t peer_pubkey_len,
+                                const uint8_t* salt, size_t salt_len,
+                                std::vector<uint8_t>& out_pubkey) {
+    if (!get_public_key(out_pubkey)) return false;
+    return do_ecdh(peer_pubkey, peer_pubkey_len, salt, salt_len);
 }
 
 bool ChaCha20Crypto::derive_session_key(const uint8_t* shared, const uint8_t* salt, size_t salt_len) {
